@@ -6,6 +6,9 @@ class Reward:
     def __float__(self) -> float:
         return self.value
     
+    def __str__(self) -> str:
+        return str(self.value)
+    
     def __add__(self, __o: object) -> object:
         if hasattr(__o, "value"):
             return Reward(self.value + __o.value)
