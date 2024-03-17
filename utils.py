@@ -223,7 +223,7 @@ def episode_gen(π: Policy, s: State, a: Action) -> List[Tuple[State, Action]]:
         episode.append((s_prime, a_prime))
     return episode
 
-def MC_exploring_starts(num_episode: int = 10000) -> Policy:
+def MC_exploring_starts(num_episode: int = 10000) -> Tuple[Policy, np.array]:
     π = initial_guess_policy()
     g_samples = defaultdict(list)
     while num_episode > 0:
@@ -256,10 +256,16 @@ def MC_exploring_starts(num_episode: int = 10000) -> Policy:
             for a_star in a_stars:
                 p_π[a_star] = 1.0 / len(a_stars)
             π.set_action_probs(s, p_π)
-    return π
+    v = np.zeros((n, n))
+    for id in range(n * n):
+        s = id_to_state(id)
+        for a in s.action_space:
+            lst = g_samples[(s, a)]
+            v[s.x][s.y] += π[s][a] * (sum(lst) / len(lst))
+    return π, v
 
 # a balance between exploitation and exploration
-def MC_ε_greedy(num_episode: int = 10000, ε: float = 0.1):
+def MC_ε_greedy(num_episode: int = 10000, ε: float = 0.2) -> Tuple[Policy, np.array]:
     π = initial_guess_policy()
     g_samples = defaultdict(list)
     while num_episode > 0:
@@ -293,4 +299,10 @@ def MC_ε_greedy(num_episode: int = 10000, ε: float = 0.1):
             for a_star in a_stars:
                 p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
             π.set_action_probs(s, p_π)
-    return π
+    v = np.zeros((n, n))
+    for id in range(n * n):
+        s = id_to_state(id)
+        for a in s.action_space:
+            lst = g_samples[(s, a)]
+            v[s.x][s.y] += π[s][a] * (sum(lst) / len(lst))
+    return π, v
