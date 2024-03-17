@@ -1,8 +1,10 @@
 r_target = 1.0 # encouragement
 r_bound = -1.0 # punishment
 r_forbid = -1.0 # punishment
+r_other = 0.0
 γ = 0.8 # discount_rate
 θ = 1e-10 # error threshold
+inf = 1e9
 max_len = 10
 
 n = 5

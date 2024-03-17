@@ -10,6 +10,7 @@ if  __name__ == "__main__":
     # π = MC_Basic_policy_evaluation()
     # v = np.zeros((n, n))
     # π, v = MC_exploring_starts()
-    π, v = MC_ε_greedy()
+    # π, v = MC_ε_greedy()
+    π, v = Sarsa()
     print(v, π, sep="\n")
     draw_gridworld(π, v)

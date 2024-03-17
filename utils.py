@@ -43,7 +43,7 @@ def state_transition(s: State, a: Action) -> State:
 
 # human-machine interface
 def action_reward(s: State, a: Action) -> Reward:
-    x, y, r = s.x + a.dx, s.y + a.dy, 0.0
+    x, y, r = s.x + a.dx, s.y + a.dy, r_other
     if outside(x, y): r = r_bound
     elif forbid(x, y): r = r_forbid
     elif target(x, y): r = r_target
@@ -305,4 +305,58 @@ def MC_ε_greedy(num_episode: int = 10000, ε: float = 0.2) -> Tuple[Policy, np.
         for a in s.action_space:
             lst = g_samples[(s, a)]
             v[s.x][s.y] += π[s][a] * (sum(lst) / len(lst))
+    return π, v
+
+def Sarsa(num_episode: int = 500, ε: float = 0.1, α: float = 0.1) -> Tuple[Policy, np.array]:
+    π = initial_guess_policy()
+    q_value = defaultdict(float)
+    while num_episode > 0:
+        num_episode -= 1
+        # start from a certain state -> not all states have optimal policy
+        s = id_to_state(12)
+        a = random.choices(
+            s.action_space,
+            weights=[
+                π[s][a] for a in s.action_space
+            ],
+            k=1
+        )[0]
+        length = 0
+        while env[s.x][s.y] != "E":
+            length += 1
+            r = float(action_reward(s, a))
+            s_prime = state_transition(s, a)
+            a_prime = random.choices(
+                s_prime.action_space,
+                weights=[
+                    π[s_prime][a_prime] for a_prime in s_prime.action_space
+                ],
+                k=1
+            )[0]
+            # update q-value
+            new_value = q_value[(s, a)] - α * (q_value[(s, a)] - (r + γ * q_value[(s_prime, a_prime)]))
+            q_value[(s, a)] = new_value
+            # update policy
+            a_stars, max_q = [], -inf
+            for a in s.action_space:
+                value = q_value[(s, a)]
+                if max_q < value:
+                    max_q = value
+                    a_stars = []
+                if max_q == value:
+                    a_stars.append(a)
+            p_π = {}
+            p_minor = ε / len(s.action_space)
+            for a in s.action_space:
+                p_π[a] = p_minor
+            for a_star in a_stars:
+                p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
+            π.set_action_probs(s, p_π)
+            s, a = s_prime, a_prime
+        print(num_episode, length)
+    v = np.zeros((n, n))
+    for id in range(n * n):
+        s = id_to_state(id)
+        for a in s.action_space:
+            v[s.x][s.y] += π[s][a] * q_value[(s, a)]
     return π, v
