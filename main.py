@@ -13,6 +13,7 @@ if  __name__ == "__main__":
     # π, v = MC_ε_greedy()
     # π, v = Sarsa()
     # π, v = Q_learning_on_policy()
-    π, v = Q_learning_off_policy()
+    # π, v = Q_learning_off_policy()
+    π, v = DQN()
     print(v, π, sep="\n")
     draw_gridworld(π, v)

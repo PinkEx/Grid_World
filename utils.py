@@ -3,6 +3,10 @@ import random
 from typing import List, Tuple
 
 import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 
 from constant import *
 
@@ -21,7 +25,7 @@ def forbid(x, y):
     return env[x][y] == "*"
 
 def target(x, y):
-    return env[x][y] == "E"
+    return env[x][y] in ["1", "2"]
 
 def initial_guess_policy() -> Policy:
     π = Policy()
@@ -46,7 +50,7 @@ def action_reward(s: State, a: Action) -> Reward:
     x, y, r = s.x + a.dx, s.y + a.dy, r_other
     if outside(x, y): r = r_bound
     elif forbid(x, y): r = r_forbid
-    elif target(x, y): r = r_target
+    elif target(x, y): r = float(env[x][y]) # r_target
     return Reward(value=r)
 
 def reward_function(s: State, π: Policy) -> Reward:
@@ -353,7 +357,7 @@ def Sarsa(num_episode: int = 500, ε: float = 0.1, α: float = 0.1) -> Tuple[Pol
             for a_star in a_stars:
                 p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
             π.set_action_probs(s, p_π)
-            if env[s.x][s.y] == "E": break
+            if target(s.x, s.y): break
             s, a = s_prime, a_prime
         # print(num_episode, length)
     v = np.zeros((n, n))
@@ -406,7 +410,7 @@ def Q_learning_on_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0.
             for a_star in a_stars:
                 p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
             π.set_action_probs(s, p_π)
-            if env[s.x][s.y] == "E": break
+            if target(s.x, s.y): break
             s = s_prime
             a = random.choices(
                 s_prime.action_space,
@@ -439,8 +443,8 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
             ],
             k=1
         )[0]
-        sa_list.append((s, a))
-        while env[s.x][s.y] != "E":
+        while not target(s.x, s.y):
+            sa_list.append((s, a))
             s_prime = state_transition(s, a)
             a_prime = random.choices(
                 s_prime.action_space,
@@ -450,7 +454,6 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
                 k=1
             )[0]
             s, a = s_prime, a_prime
-            sa_list.append((s, a))
         # print(num_episode, len(sa_list))
         for s, a in sa_list:
             r = float(action_reward(s, a))
@@ -482,4 +485,95 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
         s = id_to_state(id)
         for a in s.action_space:
             v[s.x][s.y] += π[s][a] * q_value[(s, a)]
+    return π, v
+
+class NetW(nn.Module):
+    def __init__(self):
+        super(NetW, self).__init__()
+        # 定义神经网络的各个层
+        self.fc1 = nn.Linear(4, 200)
+        self.fc2 = nn.Linear(200, 1)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        # x = self.sigmoid(self.fc2(x))
+        return x
+
+def DQN(iter_times: int = 5000, batch_size: int = 10):
+    W = NetW()
+    criterion = nn.MSELoss()
+    optimizer = optim.Adam(W.parameters(), lr=0.01)
+    input_list = []
+    output_list = []
+    
+    def update_network(iter_id: int, epochs: int = 20):
+        print(iter_id)
+        for epoch in range(epochs):
+            optimizer.zero_grad()
+            inputs = torch.tensor(input_list, dtype=torch.float32)
+            outputs = torch.tensor(output_list, dtype=torch.float32)
+            outputs_pred = W(inputs)
+            loss = criterion(outputs_pred, outputs)
+            loss.backward()
+            optimizer.step()
+            print(f"  Epoch [{epoch + 1}/{epochs}], Loss: {loss.item()}")
+
+    experience_list: List[Tuple[State, Action]] = []
+    for id in range(n * n):
+        s = id_to_state(id)
+        if forbid(s.x, s.y) or target(s.x, s.y): continue
+        for a in s.action_space:
+            experience_list.append((s, a))
+    random.shuffle(experience_list)
+
+    while iter_times > 0:
+        iter_times -= 1
+        # print(iter_times)
+        sample_list = random.choices(
+            experience_list,
+            k=batch_size
+        )
+        for s, a in sample_list:
+            r = float(action_reward(s, a))
+            s_prime = state_transition(s, a)
+            max_q = -inf
+            for a_prime in s_prime.action_space:
+                in_tensor = torch.tensor([[s_prime.x, s_prime.y, a_prime.dx, a_prime.dy]], dtype=torch.float32)
+                out_tensor = W(in_tensor)
+                max_q = max(max_q, out_tensor[0])
+            v = r + γ * max_q
+            input_list.append([s.x, s.y, a.dx, a.dy])
+            output_list.append([v])
+        if iter_times % 100 == 0:
+            update_network(iter_times)
+            input_list.clear()
+            output_list.clear()
+
+    π = initial_guess_policy()
+    v = np.zeros((n, n))
+    for id in range(n * n):
+        s = id_to_state(id)
+        a_stars, max_q = [], -inf
+        for a in s.action_space:
+            in_tensor = torch.tensor([[s.x, s.y, a.dx, a.dy]], dtype=torch.float32)
+            out_tensor = W(in_tensor)
+            value = float(out_tensor[0])
+            if max_q < value:
+                max_q = value
+                a_stars = []
+            if max_q == value:
+                a_stars.append(a)
+            p_π = {}
+            for a in s.action_space:
+                p_π[a] = 0.0
+            for a_star in a_stars:
+                p_π[a_star] = 1.0 / len(a_stars)
+            π.set_action_probs(s, p_π)
+        for a in s.action_space:
+            in_tensor = torch.tensor([[s.x, s.y, a.dx, a.dy]], dtype=torch.float32)
+            out_tensor = W(in_tensor)
+            value = float(out_tensor[0])
+            v[s.x][s.y] += π[s][a] * value
     return π, v
