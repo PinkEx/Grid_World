@@ -323,7 +323,7 @@ def Sarsa(num_episode: int = 500, ε: float = 0.1, α: float = 0.1) -> Tuple[Pol
             k=1
         )[0]
         length = 0
-        while env[s.x][s.y] != "E":
+        while True:
             length += 1
             r = float(action_reward(s, a))
             s_prime = state_transition(s, a)
@@ -353,6 +353,7 @@ def Sarsa(num_episode: int = 500, ε: float = 0.1, α: float = 0.1) -> Tuple[Pol
             for a_star in a_stars:
                 p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
             π.set_action_probs(s, p_π)
+            if env[s.x][s.y] == "E": break
             s, a = s_prime, a_prime
         # print(num_episode, length)
     v = np.zeros((n, n))
@@ -379,7 +380,7 @@ def Q_learning_on_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0.
             k=1
         )[0]
         length = 0
-        while env[s.x][s.y] != "E":
+        while True:
             length += 1
             r = float(action_reward(s, a))
             s_prime = state_transition(s, a)
@@ -405,6 +406,7 @@ def Q_learning_on_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0.
             for a_star in a_stars:
                 p_π[a_star] = (1.0 - (len(s.action_space) - len(a_stars)) * p_minor) / len(a_stars)
             π.set_action_probs(s, p_π)
+            if env[s.x][s.y] == "E": break
             s = s_prime
             a = random.choices(
                 s_prime.action_space,
@@ -437,8 +439,8 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
             ],
             k=1
         )[0]
+        sa_list.append((s, a))
         while env[s.x][s.y] != "E":
-            sa_list.append((s, a))
             s_prime = state_transition(s, a)
             a_prime = random.choices(
                 s_prime.action_space,
@@ -448,6 +450,7 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
                 k=1
             )[0]
             s, a = s_prime, a_prime
+            sa_list.append((s, a))
         # print(num_episode, len(sa_list))
         for s, a in sa_list:
             r = float(action_reward(s, a))
