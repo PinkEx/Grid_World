@@ -14,6 +14,7 @@ if  __name__ == "__main__":
     # π, v = Sarsa()
     # π, v = Q_learning_on_policy()
     # π, v = Q_learning_off_policy()
-    π, v = DQN()
+    # π, v = DQN()
+    π, v = A2C()
     print(v, π, sep="\n")
     draw_gridworld(π, v)

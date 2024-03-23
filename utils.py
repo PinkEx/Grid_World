@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.distributions import Categorical
 
 from constant import *
 
@@ -25,7 +26,7 @@ def forbid(x, y):
     return env[x][y] == "*"
 
 def target(x, y):
-    return env[x][y] in ["1", "2"]
+    return env[x][y].isdigit() and int(env[x][y]) >= 1
 
 def initial_guess_policy() -> Policy:
     π = Policy()
@@ -47,10 +48,12 @@ def state_transition(s: State, a: Action) -> State:
 
 # human-machine interface
 def action_reward(s: State, a: Action) -> Reward:
-    x, y, r = s.x + a.dx, s.y + a.dy, r_other
-    if outside(x, y): r = r_bound
-    elif forbid(x, y): r = r_forbid
-    elif target(x, y): r = float(env[x][y]) # r_target
+    x, y = s.x + a.dx, s.y + a.dy
+    if outside(x, y): return r_bound
+    if forbid(x, y): return r_forbid
+    r = r_stay if (a.dx, a.dy) == (0, 0) else r_other
+    if target(x, y):
+        r += float(env[x][y]) # r_target
     return Reward(value=r)
 
 def reward_function(s: State, π: Policy) -> Reward:
@@ -490,7 +493,6 @@ def Q_learning_off_policy(num_episode: int = 500, ε: float = 0.1, α: float = 0
 class NetW(nn.Module):
     def __init__(self):
         super(NetW, self).__init__()
-        # 定义神经网络的各个层
         self.fc1 = nn.Linear(4, 200)
         self.fc2 = nn.Linear(200, 1)
         self.sigmoid = nn.Sigmoid()
@@ -577,3 +579,108 @@ def DQN(iter_times: int = 5000, batch_size: int = 10):
             value = float(out_tensor[0])
             v[s.x][s.y] += π[s][a] * value
     return π, v
+
+class NetValue(nn.Module):
+    def __init__(self) -> None:
+        super(NetValue, self).__init__()
+        self.fc1 = nn.Linear(2, 200)
+        self.fc2 = nn.Linear(200, 100)
+        self.fc3 = nn.Linear(100, 1)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+class NetPolicy(nn.Module):
+    def __init__(self) -> None:
+        super(NetPolicy, self).__init__()
+        self.fc1 = nn.Linear(2, 200)
+        self.fc2 = nn.Linear(200, 100)
+        self.fc3 = nn.Linear(100, 5)
+
+    def forward(self, x):
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        prob = F.softmax(x, dim=-1)
+        return prob
+
+def get_action(π: NetPolicy, s: State):
+    probs = π(torch.tensor([s.x, s.y], dtype=torch.float32))
+    m = Categorical(probs)
+    a_id = m.sample()
+    logp = m.log_prob(a_id)
+    a = Action()
+    if a_id == 0: a.dx, a.dy = 0, 0
+    elif a_id == 1: a.dx, a.dy = 0, -1
+    elif a_id == 2: a.dx, a.dy = 0, 1
+    elif a_id == 3: a.dx, a.dy = -1, 0
+    elif a_id == 4: a.dx, a.dy = 1, 0
+    # print("select:", s, a, f"(a_id: {a_id})")
+    # print(probs, logp)
+    return a, logp
+
+def A2C(num_episode: int = 10000, max_len: int = 10):
+    π, v = NetPolicy(), NetValue()
+    π_opt = optim.Adam(π.parameters(), lr=3e-4)
+    v_opt = optim.Adam(v.parameters(), lr=6e-4)
+    while num_episode > 0:
+        num_episode -= 1
+        id = random.randint(0, n * n - 1)
+        s = id_to_state(id)
+        while outside(s.x, s.y) or forbid(s.x, s.y):
+            id = random.randint(0, n * n - 1)
+            s = id_to_state(id)
+        a, logp = get_action(π, s)
+        lth = 0
+        while lth < max_len:
+            lth += 1
+            r = float(action_reward(s, a))
+            s_prime = state_transition(s, a)
+            v_s = v(torch.tensor([s.x, s.y], dtype=torch.float32))
+            v_s_prime = v(torch.tensor([s_prime.x, s_prime.y], dtype=torch.float32))
+            
+            # TD error - using advantage function
+            δ = r + γ * v_s_prime - v_s
+            
+            # print(f" <{s.x}, {s.y}> + <{a.dx}, {a.dy}> -> <{s_prime.x}, {s_prime.y}>: δ = {δ}")
+            # print(f"v_s = {v_s}, v_s' = {v_s_prime}")
+            
+            # Critic (value update)
+            critic_loss = F.mse_loss(r + γ * v_s_prime, v_s)
+            # print(f"critic_loss: {critic_loss}")
+            v_opt.zero_grad()
+            critic_loss.backward()
+            v_opt.step()
+            
+            # Actor (policy update)
+            actor_loss = (-δ.detach() * logp).mean()
+            # print(f"actor_loss: {actor_loss}\n")
+            π_opt.zero_grad()
+            actor_loss.backward()
+            π_opt.step()
+
+            s = s_prime
+            a, logp = get_action(π, s)
+
+        if num_episode % 10 == 0:        
+            print(num_episode)
+            print("V:")
+            for x in range(5):
+                for y in range(5):
+                    print(round(float(v(torch.tensor([x, y], dtype=torch.float32))), 2), end=" ")
+                print()
+    
+    _v = np.zeros((n, n))
+    _π = initial_guess_policy()
+    for x in range(n):
+        for y in range(n):
+            _v[x][y] = float(v(torch.tensor([x, y], dtype=torch.float32)))
+            probs = π(torch.tensor([x, y], dtype=torch.float32))
+            s = State(x, y)
+            _π.set_action_probs(
+                s, {a: float(probs[a.__hash__()]) for a in s.action_space}
+            )
+    return _π, _v

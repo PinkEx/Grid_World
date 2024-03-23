@@ -1,7 +1,7 @@
 class Action:
     dx: int
     dy: int
-    def __init__(self, dx: int, dy: int) -> None:
+    def __init__(self, dx: int = None, dy: int = None) -> None:
         self.dx, self.dy = dx, dy
 
     def __str__(self) -> str:
